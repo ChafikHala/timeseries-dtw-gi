@@ -5,9 +5,13 @@ from typing import Optional, List, Tuple
 
 import numpy as np
 
-from dtw_gi.dtw.backend import compute_dtw_path
-from dtw_gi.dtw.alignment import path_to_W
-from dtw_gi.stiefel import stiefel_procrustes_update, random_stiefel
+# from dtw_gi.dtw.backend import compute_dtw_path
+# from dtw_gi.dtw.alignment import path_to_W
+# from dtw_gi.stiefel import stiefel_procrustes_update, random_stiefel
+
+from .dtw.backend import compute_dtw_path
+from .dtw.alignment import path_to_W
+from .stiefel import stiefel_procrustes_update, random_stiefel
 
 
 @dataclass(frozen=True)
