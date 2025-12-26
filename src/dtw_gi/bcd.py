@@ -5,10 +5,6 @@ from typing import Optional, List, Tuple
 
 import numpy as np
 
-# from dtw_gi.dtw.backend import compute_dtw_path
-# from dtw_gi.dtw.alignment import path_to_W
-# from dtw_gi.stiefel import stiefel_procrustes_update, random_stiefel
-
 from .dtw.backend import compute_dtw_path
 from .dtw.alignment import path_to_W
 from .stiefel import stiefel_procrustes_update, random_stiefel
@@ -22,13 +18,13 @@ class BCDResult:
     n_iter: int
 
 
-def dtw_gi_bcd_stiefel(
+def dtw_gi(
     x: np.ndarray,
     y: np.ndarray,
     max_iter: int = 100,
     init_P: Optional[np.ndarray] = None,
     verbose: bool = False,
-    backend: str = "torch"
+    backend: str = "tslearn"
 ) -> BCDResult:
     """
     BCD for DTW-GI when F is Stiefel (rigid linear map):
@@ -73,7 +69,7 @@ def dtw_gi_bcd_stiefel(
         res = stiefel_procrustes_update(x, y, W)
         P = res.P
 
-        # convergence check (use cost decrease)
+        # convergence check
         if verbose:
             print(f"[BCD] iter={it:03d} cost={cost:.6f} Δ={prev_cost - cost:.6e}")
 
@@ -89,7 +85,7 @@ def dtw_gi_bcd_stiefel(
 
 
 
-def dtw_gi_bcd_stiefel_multistart(
+def dtw_gi_multistart(
     x: np.ndarray,
     y: np.ndarray,
     *,
@@ -97,8 +93,7 @@ def dtw_gi_bcd_stiefel_multistart(
     n_random_starts: int = 5,
     seed: int = 0,
     verbose: bool = False,
-    backend: str = "torch",
-    cost_mode: str = "sqrt",
+    backend: str = "tslearn"
 ) -> BCDResult:
     """
     Multi-start DTW-GI using BCD on the Stiefel manifold.
@@ -118,41 +113,41 @@ def dtw_gi_bcd_stiefel_multistart(
 
     # Identity initialization 
     P_id = np.eye(px, py)
-    res_id = dtw_gi_bcd_stiefel(
+    res_id = dtw_gi(
         x,
         y,
         max_iter=max_iter,
         init_P=P_id,
-        verbose=verbose,
+        verbose=False,
         backend=backend
     )
     candidates.append(res_id)
 
     if verbose:
-        print(f"[Multi-start] identity cost = {res_id.cost:.6f}")
+        print(f"[Multi-start DTW-GI] identity cost = {res_id.cost:.6f}")
 
     #  Random Stiefel initializations 
     for k in range(n_random_starts):
         P0 = random_stiefel(px, py, rng)
-        res = dtw_gi_bcd_stiefel(
+        res = dtw_gi(
             x,
             y,
             max_iter=max_iter,
             init_P=P0,
-            verbose=verbose,
+            verbose=False,
             backend=backend,
         )
         candidates.append(res)
 
         if verbose:
-            print(f"[Multi-start] random {k+1}/{n_random_starts} cost = {res.cost:.6f}")
+            print(f"[Multi-start DTW-GI] random {k+1}/{n_random_starts} cost = {res.cost:.6f}")
 
     
     best = min(candidates, key=lambda r: r.cost)
 
     if verbose:
         print(
-            f"[Multi-start] selected cost = {best.cost:.6f} "
+            f"[Multi-start DTW-GI] selected cost = {best.cost:.6f} "
             f"(n_iter={best.n_iter})"
         )
 

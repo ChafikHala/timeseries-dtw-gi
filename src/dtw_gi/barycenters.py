@@ -1,71 +1,167 @@
-import torch
-import torch.nn as nn
-from typing import List, Optional
-from .dtw.soft_dtw import soft_dtw
-from .stiefel import apply_linear_map
+from __future__ import annotations
+
+import numpy as np
+from typing import List, Tuple
+from dataclasses import dataclass
+
+from tslearn.metrics import soft_dtw
+
+
+def project_to_stiefel(P: np.ndarray) -> np.ndarray:
+    U, _, Vt = np.linalg.svd(P, full_matrices=False)
+    return U @ Vt
+
+
+def apply_linear_map(y: np.ndarray, P: np.ndarray) -> np.ndarray:
+    return y @ P.T
+
+
+def normalized_softdtw(x, y, gamma):
+    return (
+        soft_dtw(x, y, gamma=gamma)
+        - 0.5 * (soft_dtw(x, x, gamma=gamma) + soft_dtw(y, y, gamma=gamma))
+    )
+
+
+
+@dataclass(frozen=True)
+class SoftDTWGIBarycenterResult:
+    barycenter: np.ndarray
+    Ps: List[np.ndarray]
+    loss_history: List[float]
+    n_iter: int
+
 
 class SoftDTWGIBarycenter:
+    """
+    Paper implementation of Section 3.3:
+    Barycenters under the (soft) DTW-GI geometry.
+    """
+
     def __init__(
-        self, 
-        T: int, 
-        p: int, 
-        gamma: float = 0.1, 
-        max_iter: int = 50, 
-        lr_b: float = 1e-2, 
-        lr_P: float = 1e-2
+        self,
+        T: int,
+        p: int,
+        gamma: float = 1.0,
+        max_iter: int = 20,
+        lr_b: float = 1e-2,
+        early_stopping_patience: int | None = 5,
     ):
-        """
-        Implementation of Section 3.3: Barycenters under the DTW-GI geometry.
-        """
         self.T = T
         self.p = p
         self.gamma = gamma
         self.max_iter = max_iter
         self.lr_b = lr_b
-        self.lr_P = lr_P
+        self.early_stopping_patience = early_stopping_patience
 
-    def fit(self, dataset: List[torch.Tensor], verbose: bool = True):
-        device = dataset[0].device
+    def fit(
+        self,
+        dataset: List[np.ndarray],
+        verbose: bool = True,
+    ) -> SoftDTWGIBarycenterResult:
+
         n_series = len(dataset)
-        
-        # 1. Initialize the barycenter b randomly or as a mean
-        # We use a simple normal distribution initialization
-        b = torch.randn((self.T, self.p), device=device, requires_grad=True)
-        
-        # 2. Initialize a transformation Pi for each series in the dataset
-        # Each Pi maps the series dimensionality to the barycenter dimensionality p
-        Ps = []
-        for x_i in dataset:
-            pi_px = x_i.shape[1]
-            # P_i: (pi_px, p) to map barycenter (T, p) -> (T, pi_px)
-            P_i = torch.eye(pi_px, self.p, device=device).requires_grad_(True)
-            Ps.append(P_i)
-            
-        optimizer = torch.optim.Adam([b] + Ps, lr=self.lr_b)
+        px = dataset[0].shape[1]
 
-        for it in range(self.max_iter):
-            optimizer.zero_grad()
-            total_loss = 0
-            
+        b = np.mean(dataset, axis=0)[: self.T, : self.p]
+        Ps = [project_to_stiefel(np.eye(px, self.p)) for _ in dataset]
+
+        best_loss = np.inf
+        best_iter = -1
+        loss_history = []
+
+        for it in range(1, self.max_iter + 1):
+
+            # Update each P_i
             for i, x_i in enumerate(dataset):
-                # Map barycenter to x_i's space: b_trans = b @ P_i.T
-                b_trans = apply_linear_map(b, Ps[i])
-                
-                # Compute soft-DTW between the original series and the transformed barycenter
-                res = soft_dtw(x_i, b_trans, gamma=self.gamma)
-                total_loss += res.cost
-            
+                P = Ps[i]
+
+                eps = 1e-6
+                G = np.zeros_like(P)
+
+                for a in range(P.shape[0]):
+                    for b_idx in range(P.shape[1]):
+                        P_pert = P.copy()
+                        P_pert[a, b_idx] += eps
+                        P_pert = project_to_stiefel(P_pert)
+
+                        loss_pert = normalized_softdtw(
+                            x_i,
+                            apply_linear_map(b, P_pert),
+                            self.gamma,
+                        )
+
+                        loss = normalized_softdtw(
+                            x_i,
+                            apply_linear_map(b, P),
+                            self.gamma,
+                        )
+
+                        G[a, b_idx] = (loss_pert - loss) / eps
+
+                Ps[i] = project_to_stiefel(P - 1e-2 * G)
+
+            # Update barycenter b
+            grad_b = np.zeros_like(b)
+
+            for i, x_i in enumerate(dataset):
+                P = Ps[i]
+                eps = 1e-6
+
+                for t in range(self.T):
+                    for d in range(self.p):
+                        b_pert = b.copy()
+                        b_pert[t, d] += eps
+
+                        loss_pert = normalized_softdtw(
+                            x_i,
+                            apply_linear_map(b_pert, P),
+                            self.gamma,
+                        )
+                        loss = normalized_softdtw(
+                            x_i,
+                            apply_linear_map(b, P),
+                            self.gamma,
+                        )
+
+                        grad_b[t, d] += (loss_pert - loss) / eps
+
+            grad_b /= n_series
+            b -= self.lr_b * grad_b
+
+            # bookkeeping
+            total_loss = 0.0
+            for i, x_i in enumerate(dataset):
+                total_loss += normalized_softdtw(
+                    x_i,
+                    apply_linear_map(b, Ps[i]),
+                    self.gamma,
+                )
             total_loss /= n_series
-            total_loss.backward()
-            optimizer.step()
 
-            # 3. Project Ps back to Stiefel Manifold to maintain rigid transformations
-            with torch.no_grad():
-                for P_i in Ps:
-                    U, _, Vh = torch.linalg.svd(P_i, full_matrices=False)
-                    P_i.copy_(U @ Vh)
+            loss_history.append(total_loss)
 
-            if verbose and it % 5 == 0:
-                print(f"[Barycenter] Iter {it:03d} | Average Loss: {total_loss.item():.6f}")
+            if verbose:
+                print(
+                    f"[Barycenter-GI] iter={it:03d} | "
+                    f"loss={total_loss:.6f}"
+                )
 
-        return b.detach(), Ps
+            if total_loss < best_loss:
+                best_loss = total_loss
+                best_iter = it
+
+            elif (
+                self.early_stopping_patience is not None
+                and (it - best_iter) > self.early_stopping_patience
+            ):
+                if verbose:
+                    print(f"[Barycenter-GI] early stop @ iter={it:03d}")
+                break
+
+        return SoftDTWGIBarycenterResult(
+            barycenter=b,
+            Ps=Ps,
+            loss_history=loss_history,
+            n_iter=len(loss_history),
+        )

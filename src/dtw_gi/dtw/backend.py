@@ -1,50 +1,42 @@
 from __future__ import annotations
 
 from typing import List, Tuple, Literal
-import torch
 import numpy as np
-
-from .dtw import dtw
-
 
 DTWBackend = Literal["torch", "tslearn"]
 
 
 def compute_dtw_path(
-    x: torch.Tensor,
-    y: torch.Tensor,
-    backend: DTWBackend = "torch",
+    x: np.ndarray,
+    y: np.ndarray,
+    backend: DTWBackend = "tslearn",
 ) -> Tuple[List[Tuple[int, int]], float]:
     """
-    Unified DTW path interface for BCD.
+    Unified DTW path interface.
 
     Args:
-        x: (Tx, p) torch tensor
-        y: (Ty, p) torch tensor
-        backend: "torch" | "tslearn"
+        x: (Tx, p) numpy array
+        y: (Ty, p) numpy array
+        backend: "tslearn" | "torch"
 
     Returns:
         path: list of (i, j)
-        cost: float
+        cost: float (sum of squared Euclidean distances along the path)
     """
-    if backend == "torch":
-        res = dtw(x, y, return_path=True)
-        if res.path is None:
-            raise RuntimeError("Torch DTW did not return a path.")
-        return res.path, float(res.cost)
-
-    elif backend == "tslearn":
+    if backend == "tslearn":
         return _dtw_path_tslearn(x, y)
+
+    elif backend == "torch":
+        return _dtw_path_torch(x, y)
 
     else:
         raise ValueError(f"Unknown DTW backend: {backend}")
-    
 
 
 def _dtw_path_tslearn(
-    x: torch.Tensor,
-    y: torch.Tensor,
-):
+    x: np.ndarray,
+    y: np.ndarray,
+) -> Tuple[List[Tuple[int, int]], float]:
     try:
         from tslearn.metrics import dtw_path
     except ImportError as e:
@@ -53,19 +45,35 @@ def _dtw_path_tslearn(
             "Install with `pip install tslearn`."
         ) from e
 
-    # Convert to numpy ONCE
-    x_np = x.detach().cpu().numpy()
-    y_np = y.detach().cpu().numpy()
+    x = np.asarray(x, dtype=np.float64)
+    y = np.asarray(y, dtype=np.float64)
 
-    path, _ = dtw_path(x_np, y_np)
+    path, _ = dtw_path(x, y)
 
-    # Squared Euclidean cost (to match Torch DTW definition)
-    cost_sq = sum(
-        np.sum((x_np[i] - y_np[j]) ** 2)
+    cost = sum(
+        np.sum((x[i] - y[j]) ** 2)
         for i, j in path
     )
 
     path = [(int(i), int(j)) for i, j in path]
-    return path, float(cost_sq)
+    return path, float(cost)
 
 
+def _dtw_path_torch(
+    x: np.ndarray,
+    y: np.ndarray,
+) -> Tuple[List[Tuple[int, int]], float]:
+    import torch
+    from .dtw import dtw  
+
+    x_t = torch.as_tensor(x, dtype=torch.float32)
+    y_t = torch.as_tensor(y, dtype=torch.float32)
+
+    res = dtw(x_t, y_t, return_path=True)
+    if res.path is None:
+        raise RuntimeError("Torch DTW did not return a path.")
+
+    path = [(int(i), int(j)) for i, j in res.path]
+    cost = float(res.cost)
+
+    return path, cost

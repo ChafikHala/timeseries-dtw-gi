@@ -1,8 +1,10 @@
-from .bcd import dtw_gi_bcd_stiefel, dtw_gi_bcd_stiefel_multistart
+from .bcd import dtw_gi, dtw_gi_multistart
 from .stiefel import stiefel_procrustes_update
+from .softdtw_gi import soft_dtw_gi
 
 __all__ = [
-    "dtw_gi_bcd_stiefel",
-    "dtw_gi_bcd_stiefel_multistart",
+    "dtw_gi",
+    "dtw_gi_multistart",
     "stiefel_procrustes_update",
+    "soft_dtw_gi"
 ]

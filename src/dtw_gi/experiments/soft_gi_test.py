@@ -6,17 +6,16 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '.
 import torch
 import matplotlib.pyplot as plt
 from data.data_generation import make_spirals, plot_trajectory
-from dtw_gi.gradient_descent import soft_dtw_gi_stiefel
+from dtw_gi.softdtw_gi import soft_dtw_gi
 
 dataset = make_spirals(n=2, sz=100, noise=0.01)
-x = torch.tensor(dataset[0], dtype=torch.float32)
-y = torch.tensor(dataset[1], dtype=torch.float32)
+x, y = dataset[0], dataset[1]
 
 # Run softDTW-GI
-res = soft_dtw_gi_stiefel(x, y, gamma=0.1, max_iter=150, lr=0.05, verbose=True)
+res = soft_dtw_gi(x, y, gamma=0.1, max_iter=150, lr=0.05, verbose=True)
 
 # Visualize
-y_aligned = (y @ res.P.T).numpy()
+y_aligned = (y @ res.P.T)
 
 plt.figure(figsize=(10, 5))
 plt.subplot(1, 2, 1)

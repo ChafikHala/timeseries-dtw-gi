@@ -1,23 +1,31 @@
 from __future__ import annotations
 
 from typing import Iterable, List, Tuple
+import numpy as np
 
-import torch
 
-
-def path_to_W(path: Iterable[Tuple[int, int]], Tx: int, Ty: int, *, device=None) -> torch.Tensor:
+def path_to_W(
+    path: Iterable[Tuple[int, int]],
+    Tx: int,
+    Ty: int,
+) -> np.ndarray:
     """
-    Build alignment matrix Wπ ∈ {0,1}^{Tx×Ty} from a warping path.
+    Build alignment matrix Wπ ∈ {0,1}^{Tx×Ty} from a DTW warping path.
+
+    This is the exact equivalent of the authors' `path2mat`.
     """
-    W = torch.zeros((Tx, Ty), device=device, dtype=torch.float32)
+    W = np.zeros((Tx, Ty), dtype=np.float64)
     for i, j in path:
         W[i, j] = 1.0
     return W
 
 
-def W_to_path(W: torch.Tensor) -> List[Tuple[int, int]]:
+def W_to_path(W: np.ndarray) -> List[Tuple[int, int]]:
     """
-    Extract (i,j) entries where W[i,j]=1. Assumes W is 0/1.
+    Extract (i, j) indices where W[i, j] == 1.
     """
-    idx = torch.nonzero(W > 0.0, as_tuple=False)
+    if W.ndim != 2:
+        raise ValueError("W must be a 2D array.")
+
+    idx = np.argwhere(W > 0.0)
     return [(int(i), int(j)) for i, j in idx]

@@ -51,11 +51,11 @@ for alpha in angles:
 
     y = (x @ R.T) + noise_std * torch.randn_like(x)
 
-    # --- DTW ---
+    #DTW 
     path_dtw, cost_dtw = compute_dtw_path(x, y, backend="torch")
     dtw_ratios.append(cost_dtw / len(path_dtw))
 
-    # --- DTW-GI ---
+    #DTW-GI
     res = dtw_gi_bcd_stiefel_multistart(
             x,
             y,
