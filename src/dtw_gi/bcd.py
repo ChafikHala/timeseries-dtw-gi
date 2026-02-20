@@ -16,6 +16,8 @@ class BCDResult:
     path: List[Tuple[int, int]]    # DTW alignment on last iteration
     cost: float                    # DTW cost on last iteration (with transformed y)
     n_iter: int
+    cost_history: List[float]
+
 
 
 def dtw_gi(
@@ -58,11 +60,13 @@ def dtw_gi(
     last_path: List[Tuple[int, int]] = []
     last_cost: float = np.inf
     prev_path = None
+    cost_history = []
 
     for it in range(1, max_iter + 1):
         # DTW alignment with transformed y
         yP = y @ P.T  # (Ty, px)
         path, cost = compute_dtw_path(x, yP, backend)
+        cost_history.append(cost)
 
         # build W and update P via SVD (Eq. 17 / Alg. 1)
         W = path_to_W(path, Tx=tx, Ty=ty)  # (Tx, Ty)
@@ -80,7 +84,7 @@ def dtw_gi(
         prev_cost = cost
         last_path, last_cost = path, float(cost)
 
-    return BCDResult(P=P, path=last_path, cost=last_cost, n_iter=max_iter)
+    return BCDResult(P=P, path=last_path, cost=last_cost, n_iter=max_iter, cost_history=cost_history)
 
 
 
